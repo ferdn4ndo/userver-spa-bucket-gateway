@@ -1,0 +1,6 @@
+# Git index
+.git
+
+# IDEs config
+.idea
+.vscode

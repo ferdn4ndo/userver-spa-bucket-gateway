@@ -1,0 +1,19 @@
+version: '3'
+
+services:
+  userver-spa-bucket-gateway:
+    container_name: userver-spa-bucket-gateway
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    volumes:
+      - ./html:/var/www/html
+      - ./websites:/websites
+      - ./conf:/conf
+
+networks:
+  default:
+    name: nginx-proxy
+    external: true

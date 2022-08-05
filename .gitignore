@@ -1,0 +1,9 @@
+# IDEs config
+.idea
+.vscode
+
+# Environment variables
+.env
+
+# Custom websites
+websites/*.json

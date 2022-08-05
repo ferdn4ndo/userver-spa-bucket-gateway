@@ -1,0 +1,4 @@
+{
+  "BUCKET_URL": "<bucket-name>.s3-website-<region>.amazonaws.com",
+  "DOMAIN": "<the public domain to use with the reverse proxy>"
+}
