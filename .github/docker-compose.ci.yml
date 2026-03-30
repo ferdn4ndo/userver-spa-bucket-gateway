@@ -1,0 +1,6 @@
+# Published only for CI: exposes the gateway on localhost so tests can curl it.
+# Use: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml up
+services:
+  userver-spa-bucket-gateway:
+    ports:
+      - "127.0.0.1:18080:80"

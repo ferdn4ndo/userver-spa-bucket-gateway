@@ -1,0 +1,20 @@
+name: E2E Tests
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  docker-e2e:
+    name: Docker build and gateway smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v6
+
+      - name: Run E2E smoke test (Docker Compose)
+        run: ./run_e2e_tests.sh
+        shell: bash

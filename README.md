@@ -1,5 +1,9 @@
 # UServer SPA Bucket Gateway
 
+[![E2E test status](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/actions/workflows/test_e2e.yml/badge.svg?branch=main)](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/actions/workflows/test_e2e.yml)
+[![GitLeaks test status](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/actions/workflows/test_code_leaks.yml/badge.svg?branch=main)](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/actions/workflows/test_code_leaks.yml)
+[![ShellCheck test status](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/actions/workflows/test_code_quality.yml/badge.svg?branch=main)](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/actions/workflows/test_code_quality.yml)
+[![Release](https://img.shields.io/github/v/release/ferdn4ndo/userver-spa-bucket-gateway)](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/releases)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 
 <p align="center">
@@ -8,188 +12,129 @@
 
 ---
 
-A reverse-proxy docker image to be used as the gateway for S3-hosted SPAs (serverless distribution).
+Docker image (nginx) that acts as a reverse proxy gateway for static SPAs served from **Amazon S3 static website** endpoints. It maps public hostnames to bucket URLs using JSON files under `websites/`.
 
-This service is intended to run along the [uServer](https://github.com/ferdn4ndo/userver) stack, depending specifically on [uServer-Web](https://github.com/ferdn4ndo/userver-web) to handle the SSL certificates, perform the host monitoring, and act as the main DNS for the reverse proxy. For this reason, the `VIRTUAL_HOST` environment variable must be set to a comma-separated string containing all the domains that will redirect to S3-hosted SPAs, along with the public domain of the gateway (if you want to check its health state). If you're not running behind the uServer proxy, this variable can be left empty.
+Designed to sit behind **[uServer-Web](https://github.com/ferdn4ndo/userver-web)** (TLS, monitoring, main reverse proxy) in the broader [uServer](https://github.com/ferdn4ndo/userver) stack. If you use another edge proxy, you can still run this gateway; set `VIRTUAL_HOST` only when your outer proxy expects it (comma-separated list of all hostnames handled by this service, including any name you use for health checks).
 
-Then, inside the websites folder, you'll define the details (bucket and host) for each of the SPAs. A model (template) is available at `websites/demo-repo.json.template`. Just _copy&paste_ and edit it accordingly, while keeping the `.json` extension. The file name does not affect the domain.
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/) v2
+- An external Docker network named **`nginx-proxy`** (same convention as [nginx-proxy](https://github.com/nginx-proxy/nginx-proxy) / uServer-Web). Create it once if it does not exist:
+
+```bash
+docker network create nginx-proxy
+```
+
+## Quick start
+
+1. Copy `.env.template` to `.env` and adjust values (see [Environment variables](#environment-variables)).
+2. Add one or more `*.json` files under `websites/` (start from `websites/demo-repo.json.template`).
+3. Run:
+
+```bash
+docker compose up --build
+```
+
+Compose bind-mounts `./html`, `./websites`, and `./conf` so changes on the host apply inside the container without rebuilding the image for every edit.
+
+### CI / local smoke test
+
+The same flow is exercised in GitHub Actions. Locally you can run:
+
+```bash
+./run_e2e_tests.sh
+```
+
+The script creates the `nginx-proxy` network if needed, uses a compose override (`.github/docker-compose.ci.yml`) to publish port **18080**, writes a temporary `websites/ci-e2e.json`, and checks the gateway with `curl`. If you already have a `.env` file, it is backed up and restored after the run.
 
 ## Summary
 
-1. [How to run](#how-to-run)
-2. [Configuration](#configuration)
-    1. [Environment Variables](#environment-variables)
-        * [VIRTUAL_HOST](#virtual_host)
-        * [DEMO_DEPLOY_BUCKET](#demo_deploy_bucket)
-        * [DEMO_DEPLOY_REGION](#demo_deploy_region)
-        * [DEMO_REPO_DOMAIN](#demo_repo_domain)
-        * [SLS_KEY](#sls_key)
-        * [SLS_SECRET](#sls_secret)
-        * [DEBUG](#debug)
-        * [TRAILING_SLASH](#trailing_slash)
-    2. [Websites](#websites)
-    3. [AWS S3 Bucket](#bucket-configuration)
-3. [F.A.Q.](#faq)
-    1. [Why not handle HTTPS (SSL)?](#1---why-not-handle-https-ssl)
-    2. [I found a bug / I want a new feature. What should I do?](#2---i-found-a-bug--i-want-a-new-feature-what-should-i-do)
-    3. [There's an error while creating the bucket](#3---theres-an-error-while-creating-the-bucket)
-4. [Code of Conduct](#code-of-conduct)
-5. [License](#license)
-6. [Contributors](#contributors)
-
-## How to run
-
-Assuming you have already configured the environment variables, the files inside the `websites` folder and the AWS bucket (please check the [Configuration](#configuration) section for more info), you can run the service by executing:
-
-```bash
-docker compose up
-```
-
-The `docker-compose.yml` will map the local files to the docker container (so the files are updated)
-
-[Back to top](#userver-spa-bucket-gateway)
+1. [Configuration](#configuration)
+   1. [Environment variables](#environment-variables)
+   2. [Websites](#websites)
+   3. [AWS S3 bucket](#bucket-configuration)
+2. [F.A.Q.](#faq)
+3. [Code of Conduct](#code-of-conduct)
+4. [License](#license)
+5. [Contributors](#contributors)
 
 ## Configuration
 
-To properly configure the service, you must check three items:
+You need three things in place:
 
-* the environment variables (from the `.env.template` file);
-* the website(s) `*.json` file(s);
-* the AWS S3 bucket(s);
+- Environment variables (from `.env`, based on `.env.template`)
+- One or more `websites/*.json` definitions
+- S3 buckets configured for static website hosting
 
-Each of them is described in the sections below.
+### Environment variables
 
-[Back to top](#userver-spa-bucket-gateway)
-
-### Environment Variables
-
-To configure the environment variables, copy the template file (located under the project root named `.env.template`) to the `.env` one:
+Copy the template and edit `.env`:
 
 ```bash
 cp .env.template .env
 ```
 
-Then edit the `.env` file according to the specifications:
+| Variable | Purpose |
+| -------- | ------- |
+| `VIRTUAL_HOST` | Comma-separated public hostnames when running behind another reverse proxy (e.g. uServer-Web); optional if this gateway is the front door |
+| `DEMO_DEPLOY_BUCKET` | Target S3 bucket for the demo deploy script |
+| `DEMO_DEPLOY_REGION` | Region for that bucket |
+| `DEMO_REPO_DOMAIN` | Public hostname for the demo app |
+| `SLS_KEY` / `SLS_SECRET` | AWS credentials for demo deploy |
+| `DEBUG` | Set to `1` to add `X-Debug-*` response headers |
+| `TRAILING_SLASH` | Set to `1` to enforce trailing slashes on paths; any other value (including unset) uses the entrypoint rule that strips trailing slashes (see `custom-entrypoint.sh`) |
 
 #### **VIRTUAL_HOST**
 
-This variable will store the comma-separated list of public domains that the service will handle. Despite duplicating some information from the websites folder, this variable is only required when running the container behind another reverse-proxy tool (like what we do on [uServer-Web](https://github.com/ferdn4ndo/userver-web)). If you plan to use this service as the upfront gateway of your application, you can leave this value empty.
+Comma-separated list of domains this service handles. Required when the container runs behind another reverse proxy (as with uServer-Web). If this gateway terminates HTTP directly, you can leave it empty.
 
 ```bash
-# It should contain all the domains (and subdomains) handled by the gateway
 VIRTUAL_HOST=domain1.com,app.domain1.com,www.domain1.com,domain2.com
 ```
 
-_THIS VARIABLE IS REQUIRED WHEN RUNNING BEHIND ANOTHER REVERSE PROXY!_
-
-[Back to top](#userver-spa-bucket-gateway)
-
 #### **DEMO_DEPLOY_BUCKET**
 
-If you plan to deploy the demo application, use this variable to inform the bucket name where the files will be pushed.
+S3 bucket name for deploying the demo static files (optional unless you use `deploy-demo-repo.sh`).
 
 ```bash
-# The bucket name to where the demo application will be deployed
 DEMO_DEPLOY_BUCKET=my-bucket-name
 ```
 
-Default: _\<EMPTY\>_
-
-_THIS VARIABLE IS REQUIRED WHEN DEPLOYING THE DEMO APP!_
-
-[Back to top](#userver-spa-bucket-gateway)
-
 #### **DEMO_DEPLOY_REGION**
 
-If you plan to deploy the demo application, use this variable to inform the bucket region where the files will be pushed.
+Region of the demo bucket.
 
 ```bash
 DEMO_DEPLOY_REGION=us-east-1
 ```
 
-Default: _\<EMPTY\>_
-
-_THIS VARIABLE IS REQUIRED WHEN DEPLOYING THE DEMO APP!_
-
-[Back to top](#userver-spa-bucket-gateway)
-
 #### **DEMO_REPO_DOMAIN**
 
-If you plan to deploy the demo application, use this variable to inform the public domain where the gateway should expose the app.
+Public hostname where the demo should be reachable.
 
 ```bash
 DEMO_REPO_DOMAIN=app.domain1.com
 ```
 
-Default: _\<EMPTY\>_
+#### **SLS_KEY** / **SLS_SECRET**
 
-_THIS VARIABLE IS REQUIRED WHEN DEPLOYING THE DEMO APP!_
-
-[Back to top](#userver-spa-bucket-gateway)
-
-#### **SLS_KEY**
-
-If you plan to deploy the demo application, use this variable to inform the AWS Key to use when connecting to the Amazon services.
-
-```bash
-SLS_KEY=A123456789KEY
-```
-
-Default: _\<EMPTY\>_
-
-_THIS VARIABLE IS REQUIRED WHEN DEPLOYING THE DEMO APP!_
-
-[Back to top](#userver-spa-bucket-gateway)
-
-#### **SLS_SECRET**
-
-If you plan to deploy the demo application, use this variable to inform the AWS Secret to use when connecting to the Amazon services.
-
-```bash
-SLS_SECRET="4WsK3yT0pS3cR3tW1th3sP3ci@lCh4rs#"
-```
-
-Default: _\<EMPTY\>_
-
-_THIS VARIABLE IS REQUIRED WHEN DEPLOYING THE DEMO APP!_
-
-[Back to top](#userver-spa-bucket-gateway)
+AWS access key and secret for demo upload workflows.
 
 #### **DEBUG**
 
-Setting this variable to `1` will append some debugging information in the response headers passing through this gateway. The headers will have the key starting with `X-Debug-*`.
+`1` enables extra response headers prefixed with `X-Debug-*`.
 
-```bash
-# This will enable some extra Response Headers in the format X-Debug-*
-DEBUG=1
-```
-
-Default: _0_
-
-[Back to top](#userver-spa-bucket-gateway)
+Default: `0`.
 
 #### **TRAILING_SLASH**
 
-Setting this variable to `append` will append a trailing slash to the redirect URLs (so a request to `mydomain.com/slug` will become `mydomain.com/slug/`).
-
-Setting this variable to `trim` will remove a trailing slash of the redirect URLs (so a request to `mydomain.com/slug/` will become `mydomain.com/slug`).
-
-Leaving this variable blank (or using any other value for it) will imply not changing the URL at all.
-
-```bash
-# This will add a trailing slash to every request (if not present)
-TRAILING_SLASH=append
-```
-
-Default: _\<EMPTY\>_
-
-[Back to top](#userver-spa-bucket-gateway)
+The entrypoint treats `TRAILING_SLASH=1` as “append trailing slash” behaviour. Other values configure the alternate rewrite block (see `custom-entrypoint.sh`). Align `.env` with the behaviour you want and re-read the script if you rely on edge cases.
 
 ### Websites
 
-To configure the websites that will run behind the proxy gateway, adjust the files inside the `websites/` folder.
+Each `*.json` file in `websites/` defines one site. Files named `*.json.template` are ignored for routing (only `*.json` is processed).
 
-Every `*.json` file inside the `websites/` folder is considered a different website. There's a demo JSON file named `demo-repo.json.template` (skipped from the gateway as it does not end with `.json`). This file can be used to deploy the demo application (by filling the missing information and renaming the file to `demo-repo.json`), or can be used as a template for your websites:
+Template (`websites/demo-repo.json.template` — copy to e.g. `demo-repo.json` and edit):
 
 ```json
 {
@@ -198,7 +143,7 @@ Every `*.json` file inside the `websites/` folder is considered a different webs
 }
 ```
 
-So assuming the demo application was deployed in the bucket `my-bucket` (inside the region `us-east-1`) and the public domain (registered in the DNS server that points to the container's host IP) is `my-application.com`, the JSON configuration file would be:
+Example for bucket `my-bucket` in `us-east-1` and hostname `my-application.com`:
 
 ```json
 {
@@ -207,96 +152,70 @@ So assuming the demo application was deployed in the bucket `my-bucket` (inside 
 }
 ```
 
-After updating the websites, remember to restart the `nginx` server by running:
+After changing website definitions, restart nginx, for example:
 
-```
+```bash
 docker container restart userver-spa-bucket-gateway
 ```
 
-There's a plan to add a hot-reload feature that will automatically restart the service using `inotify`, but this is still a nice-to-have.
-
-[Back to top](#userver-spa-bucket-gateway)
+Hot-reload via `inotify` is not implemented yet.
 
 ### Bucket Configuration
 
-When creating the bucket that will store your application static files, you must change the following settings:
+When creating the bucket for static assets:
 
 #### **1 - Enable ACL and Object Ownership**
 
-Under the _Object Ownership_ section, set the ACLs configuration to **ACLs enabled** and the object ownership to **Object writer**.
+Under **Object Ownership**, use **ACLs enabled** and **Object writer**.
 
 ![Screenshot of the Object Ownership configuration](docs/img/bucket-configuration-1-object-ownership.png)
 
 #### **2 - Allow Public Access**
 
-Under the _Block Public Access settings for this bucket_ section, uncheck the "**Block all public access**" checkbox and check the "**I acknowledge that the current settings might result in this bucket and the objects within becoming public** "one.
+Under **Block Public Access settings for this bucket**, uncheck **Block all public access** and confirm the warning.
 
-![Screenshot of the Public Acess configuration](docs/img/bucket-configuration-2-public-access.png)
+![Screenshot of the Public Access configuration](docs/img/bucket-configuration-2-public-access.png)
 
 #### **3 - Website Configuration**
 
-After creating the bucket, access its configurations and go to the bucket page in the AWS S3 Console, and navigate to the "Properties" tab. At the bottom of the page, click on the "Edit" button inside the "Static website hosting" section:
+In the bucket **Properties** tab, edit **Static website hosting**: enable it, choose **Host a static website**, and set index/error documents as needed.
 
 ![Screenshot of the Website Hosting edit button](docs/img/bucket-configuration-3-static-website-hosting-edit.png)
 
-Then, in the new section that is shown, mark the "Enabled" option inside "Static website hosting" and make sure that the "Host a static website" option is also checked.
-
 ![Screenshot of the Website Hosting configuration](docs/img/bucket-configuration-4-static-website-hosting-config.png)
 
-If your website requires, you can change the **Index document** and the **Error document** to match the filenames inside your bucket.
-
-After that, you can save the changes and the bucket is ready to be served through the gateway!
-
-Of course, you may need to upload your website files too! :grin:
-
-This can be done directly through the AWS S3 interface or using `aws-cli`. For example, to upload the demo bucket content to your bucket (assuming it's named `my-bucket`), you could use the command:
+Upload files via the S3 console or CLI, for example:
 
 ```bash
-aws s3 cp --acl public-read demo-repo-content/ s3://my-bucket --recursive
+aws s3 cp --acl public-read demo-bucket-content/ s3://my-bucket --recursive
 ```
 
-This command is also available in the executable file `deploy-demo-repo.sh`, which assumes that the bucket name is stored in the environment variable "**DEMO_DEPLOY_BUCKET**"
-
-[Back to top](#userver-spa-bucket-gateway)
+The same upload is wrapped in `deploy-demo-repo.sh`, which reads `DEMO_DEPLOY_BUCKET` from the environment.
 
 ## FAQ
 
 ### 1 - Why not handle HTTPS (SSL)?
 
-R: Because this is already implemented in the [uServer-Web](https://github.com/ferdn4ndo/userver-web) domain. We don't handle firewall/monitoring here for the same reason.
-
-[Back to top](#userver-spa-bucket-gateway)
+TLS termination and related concerns are handled by [uServer-Web](https://github.com/ferdn4ndo/userver-web) in the recommended setup. This image focuses on mapping hostnames to S3 website endpoints.
 
 ### 2 - I found a bug / I want a new feature. What should I do?
 
-R: Open an issue in this repository. Please describe your request as detailed as possible (remember to attach binary/big files externally), and wait for feedback. If you're familiar with software development, feel free to open a Pull Request with the suggested solution. Contributions are welcomed!
-
-Please be aware that you must comply to our [Code of Conduct](#code-of-conduct).
-
-[Back to top](#userver-spa-bucket-gateway)
+Open an issue with a clear description (link large attachments instead of embedding them). Pull requests are welcome. Please follow the [Code of Conduct](#code-of-conduct).
 
 ### 3 - There's an error while creating the bucket
 
-R: This is normally related to the permissions of the IAM user (defined by the `.env` variables `SLS_KEY` and `SLS_SECRET`). We recommend you try a less-strict policy for the required services (like `AdminAccess` to `S3`) in a controlled environment so you can make it work first, then iterate removing permissions one by one.
-
-[Back to top](#userver-spa-bucket-gateway)
+This is often IAM permissions for the credentials in `SLS_KEY` / `SLS_SECRET`. In a safe test environment you can start with a broader S3 policy and tighten it incrementally.
 
 ## Code of Conduct
 
-When interacting with the project, this repository, and/or any contributor, you must attend to our [Code of Conduct](docs/CODE_OF_CONDUCT.md).
-
-[Back to top](#userver-spa-bucket-gateway)
+See [docs/CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md).
 
 ## License
 
-This application is distributed under the [MIT](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/blob/main/LICENSE) license.
-
-[Back to top](#userver-spa-bucket-gateway)
+[MIT](https://github.com/ferdn4ndo/userver-spa-bucket-gateway/blob/main/LICENSE).
 
 ## Contributors
 
 [ferdn4ndo](https://github.com/ferdn4ndo)
 
-Any help is appreciated! Feel free to review, open an issue, fork, and/or open a PR.
-
-[Back to top](#userver-spa-bucket-gateway)
+Reviews, issues, forks, and pull requests are welcome.

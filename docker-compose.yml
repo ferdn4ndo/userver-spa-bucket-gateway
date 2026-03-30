@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   userver-spa-bucket-gateway:
     container_name: userver-spa-bucket-gateway
