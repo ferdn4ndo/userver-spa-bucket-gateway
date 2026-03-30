@@ -1,12 +1,14 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 set -e
 
 conf_file_content=$(cat /conf/headers.conf)
 
 DEBUG_CONF=""
-if [ "$DEBUG" == "1" ]; then
+if [ "$DEBUG" = "1" ]; then
     echo "Running in DEBUG mode!"
+    # nginx variables $bucket / ${uri}; must not be expanded by the shell
+    # shellcheck disable=SC2016
     DEBUG_CONF='
         add_header X-Debug-Proxy-Url "http://$bucket${uri}" always;
         add_header X-Debug-Bucket "$bucket" always;
@@ -16,14 +18,16 @@ else
     echo "Debugging is disabled!"
 fi
 
-if [ "$TRAILING_SLASH" == "1" ]; then
+if [ "$TRAILING_SLASH" = "1" ]; then
     echo "Adding rule to enforce trailing slashes"
+    # shellcheck disable=SC2016
     TRAILING_SLASH_CONF='
         # Appends a trailing slash
         rewrite ^([^.]*[^/])$ $1/ permanent;
 '
 else
     echo "Adding rule to remove trailing slashes"
+    # shellcheck disable=SC2016
     TRAILING_SLASH_CONF='
         # Removes the trailing slash
         rewrite ^/(.*)/$ /$1 permanent;
@@ -34,8 +38,8 @@ for file in /websites/*.json; do
     [ -f "$file" ] || break
     echo "Reading website from file '$file'..."
 
-    BUCKET_URL=$(cat $file | jq -r '.BUCKET_URL')
-    DOMAIN=$(cat $file | jq -r '.DOMAIN')
+    BUCKET_URL=$(jq -r '.BUCKET_URL' <"$file")
+    DOMAIN=$(jq -r '.DOMAIN' <"$file")
 
     template="
 # Template parsed from file '$file'
@@ -57,12 +61,12 @@ echo "$conf_file_content" > /etc/nginx/conf.d/default.conf
 
 echo "DEFAULT CONF CREATED!"
 
-if [ "$DEBUG" == "1" ]; then
+if [ "$DEBUG" = "1" ]; then
     echo "Conf file (/etc/nginx/conf.d/default.conf) content:"
     cat /etc/nginx/conf.d/default.conf
 else
     echo "To check the final conf file, run:"
-    echo "  docker exec -it userver-serverless-gateway sh -c \"cat /etc/nginx/conf.d/default.conf\""
+    echo "  docker exec -it userver-spa-bucket-gateway sh -c \"cat /etc/nginx/conf.d/default.conf\""
 fi
 
 echo "Custom config generation finished! Resuming the nginx loading..."
