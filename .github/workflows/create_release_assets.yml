@@ -1,0 +1,40 @@
+name: Create Release Assets
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  create-release-asset:
+    name: Create Release Assets
+    runs-on: ubuntu-latest
+    env:
+      ARCHIVE_NAME: ${{ github.event.repository.name }}-${{ github.event.release.tag_name }}
+    steps:
+      - name: Download release tarball
+        run: curl -sL "${{ github.event.release.tarball_url }}" >"$ARCHIVE_NAME".tar.gz
+
+      - name: Unpack release
+        run: mkdir "$ARCHIVE_NAME" && tar -xzf "$ARCHIVE_NAME".tar.gz -C "$ARCHIVE_NAME" --strip-components 1
+
+      - name: Remove .github from archive tree
+        run: rm -rf "$ARCHIVE_NAME"/.github
+
+      - name: Create release .tar.gz
+        run: tar -czf "$ARCHIVE_NAME".tar.gz "$ARCHIVE_NAME"
+
+      - name: Compute checksum
+        run: sha256sum "$ARCHIVE_NAME".tar.gz >checksum.txt
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            "$ARCHIVE_NAME.tar.gz" \
+            checksum.txt \
+            --clobber
